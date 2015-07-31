@@ -10,6 +10,8 @@
   var git = require('gulp-git');
   var filter = require('gulp-filter');
   var less = require('gulp-less');
+  var data = require('gulp-data');
+  var change = require('gulp-change');
   var rsync = require('gulp-rsync');
   var webserver = require('gulp-webserver');
   var streamqueue = require('streamqueue');
@@ -101,6 +103,8 @@
         var $ = cheerio.load(fs.readFileSync(file));
         posts.push({
           'title': $("head title").text(),
+          'description': $("head meta[name='description']").attr('content'),
+          'body': $("body").text(),
           'mtime': stat.mtime,
           'path': 'posts/' + files[i]
         });
@@ -112,6 +116,12 @@
       return a.mtime >= b.mtime ? 1 : -1;
     });
     return posts;
+  }
+
+  function performTemplateChange(content) {
+    var file = dir.src + '/templates/post.hbs';
+    var stat = fs.statSync(file);
+    return fs.readFileSync(file, {'encoding': 'utf-8'});
   }
 
   /**
@@ -211,7 +221,7 @@
   /**
    * Package the handlebars files.
    */
-  gulp.task('package:posts', function () {
+  gulp.task('package:postindex', function () {
 
     var templateData = {
       'posts': buildPostManifest(),
@@ -220,6 +230,30 @@
 
     // Automatically build the site list.
     return gulp.src(dir.src + '/index.hbs', {'base': dir.src})
+      .pipe(handlebars(templateData, handlebarsConfig))
+      .pipe(rename(function (path) {
+        path.extname = ".html";
+      }))
+      .pipe(gulp.dest(dir.dist));
+  });
+
+  gulp.task('package:posts', function () {
+
+    var templateData = {
+      'author': packageJson.author
+    };
+
+    // Automatically build the site list.
+    return gulp.src(dir.src + '/posts/*.html', {'base': dir.src})
+      .pipe(data(function(path) {
+        var stat = fs.statSync(path);
+        var $ = cheerio.load(fs.readFileSync(path));
+        return {
+          'title': $("head title").text(),
+          'description': $("head meta[name='description']").attr('content'),
+          'body': $("body").text(),
+        }}))
+      .pipe(change(performTemplateChange))
       .pipe(handlebars(templateData, handlebarsConfig))
       .pipe(rename(function (path) {
         path.extname = ".html";
@@ -296,7 +330,7 @@
    * Package the entire site into the dist folder.
    */
   gulp.task('package', ['package:html', 'package:talks', 'package:posts',
-    'package:libs',
+    'package:postindex', 'package:libs',
     'package:images', 'package:css', 'package:js']);
 
   gulp.task('rsync', function () {
